@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { getSocket } from "@/app/lib/socket";
-import QRCode from "react-qr-code"; // ✅ use the library
+import QRCode from "react-qr-code";
 import LottoBall from "@/app/components/LottoBall";
 import Toggle from "@/app/components/Toggle";
 import PatternPicker from "@/app/components/PatternPicker";
@@ -50,11 +50,13 @@ export default function HostPage() {
 			setHistory([]);
 			toast("New round started", { icon: "🎬" });
 		});
+		s.on("game:ended", () => toast("Round ended", { icon: "⏹️" }));
 		return () => {
 			s.off("room:updated");
 			s.off("game:called");
 			s.off("game:undo");
 			s.off("game:started");
+			s.off("game:ended");
 		};
 	}, []);
 
@@ -77,9 +79,10 @@ export default function HostPage() {
 	};
 
 	const code = summary?.code ?? "";
-	const lastCalled = history.length ? history[history.length - 1] : null; // ✅ avoid .at
+	const lastCalled = history.length ? history[history.length - 1] : null;
 
 	const start = () => code && getSocket().emit("host:start", { code, hostKey });
+	const endRound = () => code && getSocket().emit("host:end_round", { code, hostKey });
 	const callNext = () => code && getSocket().emit("host:call_next", { code, hostKey });
 	const undo = () => code && getSocket().emit("host:undo", { code, hostKey });
 
@@ -90,12 +93,14 @@ export default function HostPage() {
 		code && getSocket().emit("host:set_lock_on_start", { code, hostKey, lockOnStart: v });
 	const setLocked = (v: boolean) => code && getSocket().emit("host:set_locked", { code, hostKey, locked: v });
 
-	// Build the join URL once on client
+	const started = !!summary?.started;
+	const canCall = started && history.length < 75;
+	const canUndo = started && history.length > 0;
+
 	const joinUrl = typeof window !== "undefined" && code ? `${window.location.origin}/play/${code}` : code || "JOIN";
 
 	return (
 		<section className='space-y-6'>
-			{/* Header */}
 			<div className='card p-5'>
 				<div className='flex items-center justify-between'>
 					<div className='text-2xl font-bold'>Host Console</div>
@@ -105,7 +110,6 @@ export default function HostPage() {
 				</div>
 			</div>
 
-			{/* If no room yet: creation + resume */}
 			{!summary && (
 				<div className='grid gap-6 md:grid-cols-2'>
 					<div className='card p-5 space-y-3'>
@@ -120,10 +124,8 @@ export default function HostPage() {
 				</div>
 			)}
 
-			{/* When hosting a room */}
 			{summary && (
 				<>
-					{/* Room card */}
 					<div className='card p-5 grid gap-4 md:grid-cols-[1fr_auto]'>
 						<div>
 							<div className='text-sm text-slate-500'>ROOM</div>
@@ -133,23 +135,57 @@ export default function HostPage() {
 							</div>
 
 							<div className='mt-4 grid grid-cols-2 gap-3 sm:max-w-md'>
-								<button className='rounded-2xl bg-emerald-600 px-4 py-3 text-white' onClick={start}>
+								<button
+									className='rounded-2xl px-4 py-3 text-white disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-600'
+									onClick={start}
+									disabled={started}
+									title={started ? "Round already started" : "Start a new round"}>
 									Start Round
 								</button>
-								<button className='rounded-2xl bg-indigo-600 px-4 py-3 text-white' onClick={callNext}>
+
+								<button
+									className='rounded-2xl px-4 py-3 text-white disabled:opacity-50 disabled:cursor-not-allowed bg-rose-600'
+									onClick={endRound}
+									disabled={!started}
+									title={!started ? "No active round" : "End current round"}>
+									End Round
+								</button>
+
+								<button
+									className='rounded-2xl px-4 py-3 text-white disabled:opacity-50 disabled:cursor-not-allowed bg-indigo-600'
+									onClick={callNext}
+									disabled={!canCall}
+									title={
+										!started
+											? "Start the round first"
+											: history.length >= 75
+											? "No more numbers"
+											: "Call next number"
+									}>
 									Call Next
 								</button>
-								<button className='rounded-2xl bg-slate-200 px-4 py-3' onClick={undo}>
+
+								<button
+									className='rounded-2xl px-4 py-3 disabled:opacity-50 disabled:cursor-not-allowed bg-slate-200'
+									onClick={undo}
+									disabled={!canUndo}
+									title={
+										!started
+											? "Start the round first"
+											: !canUndo
+											? "Nothing to undo"
+											: "Undo last call"
+									}>
 									Undo
 								</button>
-								<div className='flex items-center text-sm text-slate-600'>
+
+								<div className='col-span-2 flex items-center text-sm text-slate-600'>
 									Last: <span className='ml-1 font-semibold'>{lastCalled ?? "—"}</span>
 								</div>
 							</div>
 						</div>
 
 						<div className='justify-self-end'>
-							{/* ✅ react-qr-code uses `value`, not `text` */}
 							<div className='rounded-2xl border p-3 bg-white'>
 								<QRCode value={joinUrl} size={128} />
 							</div>
@@ -157,7 +193,6 @@ export default function HostPage() {
 						</div>
 					</div>
 
-					{/* Called numbers */}
 					<div className='card p-5'>
 						<div className='text-sm font-semibold mb-3'>Called numbers ({history.length})</div>
 						<div className='flex flex-wrap gap-3'>
@@ -167,10 +202,9 @@ export default function HostPage() {
 						</div>
 					</div>
 
-					{/* Settings */}
 					<div className='card p-5 space-y-4'>
 						<div className='text-sm font-semibold'>Win pattern</div>
-						<PatternPicker value={summary.pattern} onChange={setPattern} />
+						<PatternPicker value={summary.pattern} onChange={setPattern} disabled={started} />
 
 						<div className='grid gap-3 sm:grid-cols-3'>
 							<Toggle
@@ -187,7 +221,6 @@ export default function HostPage() {
 						</div>
 					</div>
 
-					{/* Players & Winners */}
 					<div className='grid gap-6 md:grid-cols-2'>
 						<div className='card p-5'>
 							<div className='text-sm font-semibold mb-2'>Players ({summary.players.length})</div>
