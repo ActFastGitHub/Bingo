@@ -1,246 +1,235 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { getSocket } from "@/app/lib/socket";
-import CalledBoard from "@/app/components/CalledBoard";
-import QRCode from "react-qr-code";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
+import { getSocket } from "@/app/lib/socket";
+import QRCode from "react-qr-code"; // ✅ use the library
+import LottoBall from "@/app/components/LottoBall";
+import Toggle from "@/app/components/Toggle";
+import PatternPicker from "@/app/components/PatternPicker";
+import ResumeRoom from "@/app/components/ResumeRoom";
 
+type PatternType = "line" | "x" | "plus" | "blackout" | "corners" | "t" | "l";
 type PlayerLite = { id: string; name: string; cards: number };
-type Winner = { playerId: string; name: string; pattern: string; round: number; cardIndex?: number };
-type Pattern = "line" | "diagonal" | "blackout" | "cross" | "t" | "l";
+type WinnerLite = { playerId: string; name: string; pattern: string; at: number; cardIndex: number };
+
+type Summary = {
+	code: string;
+	started: boolean;
+	calledCount: number;
+	last: number | null;
+	players: PlayerLite[];
+	roundId: number;
+	winners: WinnerLite[];
+	pattern: PatternType;
+	allowAutoMark: boolean;
+	locked: boolean;
+	lockLobbyOnStart: boolean;
+};
+
+type HostRoom = { code: string; hostKey: string };
+const LS_KEY = "bingo_host_rooms";
+const saveHostRoom = (entry: HostRoom) => {
+	const list: HostRoom[] = JSON.parse(localStorage.getItem(LS_KEY) || "[]");
+	const exists = list.some(x => x.code === entry.code);
+	const next = exists ? list.map(x => (x.code === entry.code ? entry : x)) : [...list, entry];
+	localStorage.setItem(LS_KEY, JSON.stringify(next));
+};
 
 export default function HostPage() {
-  const [code, setCode] = useState<string | null>(null);
-  const [started, setStarted] = useState(false);
-  const [history, setHistory] = useState<number[]>([]);
-  const [players, setPlayers] = useState<PlayerLite[]>([]);
-  const [round, setRound] = useState(1);
-  const [winners, setWinners] = useState<Winner[]>([]);
-  const [pattern, setPattern] = useState<Pattern>("line");
-  const [allowAutoMark, setAllowAutoMark] = useState(true);
-  const [lockOnStart, setLockOnStart] = useState(true);
-  const [locked, setLocked] = useState(false);
+	const [summary, setSummary] = useState<Summary | null>(null);
+	const [history, setHistory] = useState<number[]>([]);
+	const [hostKey, setHostKey] = useState<string>("");
 
-  const last = history[history.length - 1] ?? null;
-  const shareUrl = typeof window !== "undefined" && code ? `${window.location.origin}/play/${code}` : "";
+	useEffect(() => {
+		const s = getSocket();
+		s.on("room:updated", (sum: Summary) => setSummary(sum));
+		s.on("game:called", ({ history }: { history: number[] }) => setHistory(history));
+		s.on("game:undo", ({ history }: { history: number[] }) => setHistory(history));
+		s.on("game:started", () => {
+			setHistory([]);
+			toast("New round started", { icon: "🎬" });
+		});
+		return () => {
+			s.off("room:updated");
+			s.off("game:called");
+			s.off("game:undo");
+			s.off("game:started");
+		};
+	}, []);
 
-  useEffect(() => {
-    const socket = getSocket();
+	const createRoom = () => {
+		getSocket().emit("host:create_room", null, (res: { code: string; seed: number; hostKey: string }) => {
+			saveHostRoom({ code: res.code, hostKey: res.hostKey });
+			setHostKey(res.hostKey);
+			toast.success(`Room ${res.code} created`);
+			getSocket().emit("room:watch", res.code, (r: any) => r?.ok && setSummary(r.summary));
+		});
+	};
 
-    const onSummary = (summary: any) => {
-      setStarted(!!summary.started);
-      setPlayers(summary.players ?? []);
-      if (summary.pattern) setPattern(summary.pattern);
-      if (typeof summary.allowAutoMark === "boolean") setAllowAutoMark(summary.allowAutoMark);
-      if (typeof summary.lockLobbyOnStart === "boolean") setLockOnStart(summary.lockLobbyOnStart);
-      if (typeof summary.locked === "boolean") setLocked(summary.locked);
-    };
+	const resumeRoom = (entry: HostRoom) => {
+		getSocket().emit("room:watch", entry.code, (r: any) => {
+			if (!r?.ok) return toast.error("Room not found (maybe cleared)");
+			setSummary(r.summary);
+			setHostKey(entry.hostKey);
+			toast.success(`Resumed room ${entry.code}`);
+		});
+	};
 
-    socket.on("room:updated", onSummary);
-    socket.on("policy:allow_automark", (allow: boolean) => setAllowAutoMark(allow));
-    socket.on("policy:locked", (v: boolean) => setLocked(v));
+	const code = summary?.code ?? "";
+	const lastCalled = history.length ? history[history.length - 1] : null; // ✅ avoid .at
 
-    socket.on("game:started", () => {
-      setStarted(true);
-      setHistory([]);
-      toast.success(`Round ${round} started (${pattern})`);
-    });
-    socket.on("game:called", ({ n, history }: { n: number; history: number[] }) => {
-      setHistory(history);
-      toast.dismiss();
-      toast(`Called: ${n}`, { icon: "🔔" });
-    });
-    socket.on("game:undo", ({ history }: { history: number[] }) => {
-      setHistory(history);
-      toast("Undid last draw", { icon: "↩️" });
-    });
-    socket.on("game:winner", (w: any) => {
-      setWinners((prev) => {
-        if (prev.some(p => p.playerId === w.playerId && p.round === round)) return prev;
-        return [...prev, { playerId: w.playerId, name: w.name, pattern: w.pattern, round, cardIndex: w.cardIndex }];
-      });
-      toast.success(`🎉 Winner: ${w.name} (${w.pattern})`, { duration: 3000 });
-    });
+	const start = () => code && getSocket().emit("host:start", { code, hostKey });
+	const callNext = () => code && getSocket().emit("host:call_next", { code, hostKey });
+	const undo = () => code && getSocket().emit("host:undo", { code, hostKey });
 
-    return () => {
-      socket.off("room:updated", onSummary);
-      socket.off("policy:allow_automark");
-      socket.off("policy:locked");
-      socket.off("game:started");
-      socket.off("game:called");
-      socket.off("game:undo");
-      socket.off("game:winner");
-    };
-  }, [round, pattern]);
+	const setPattern = (p: PatternType) => code && getSocket().emit("host:set_pattern", { code, hostKey, pattern: p });
+	const setAllowAuto = (allow: boolean) =>
+		code && getSocket().emit("host:set_allow_automark", { code, hostKey, allow });
+	const setLockOnStart = (v: boolean) =>
+		code && getSocket().emit("host:set_lock_on_start", { code, hostKey, lockOnStart: v });
+	const setLocked = (v: boolean) => code && getSocket().emit("host:set_locked", { code, hostKey, locked: v });
 
-  const createRoom = () => {
-    getSocket().emit("host:create_room", {}, ({ code }: { code: string }) => {
-      setCode(code);
-      setRound(1);
-      setWinners([]);
-      toast.success("Room created");
-    });
-  };
+	// Build the join URL once on client
+	const joinUrl = typeof window !== "undefined" && code ? `${window.location.origin}/play/${code}` : code || "JOIN";
 
-  const applyPattern = () => code && getSocket().emit("host:set_pattern", { code, pattern });
-  const applyAllowAuto = () => code && getSocket().emit("host:set_allow_automark", { code, allow: allowAutoMark });
-  const applyLockOnStart = () => code && getSocket().emit("host:set_lock_on_start", { code, lockOnStart });
+	return (
+		<section className='space-y-6'>
+			{/* Header */}
+			<div className='card p-5'>
+				<div className='flex items-center justify-between'>
+					<div className='text-2xl font-bold'>Host Console</div>
+					<a className='text-sm text-slate-600 hover:text-slate-900' href='/'>
+						Home
+					</a>
+				</div>
+			</div>
 
-  const start = () => {
-    if (!code) return;
-    applyPattern();
-    applyAllowAuto();
-    applyLockOnStart();
-    setRound((r) => r + (started ? 1 : 0));
-    getSocket().emit("host:start", code);
-  };
+			{/* If no room yet: creation + resume */}
+			{!summary && (
+				<div className='grid gap-6 md:grid-cols-2'>
+					<div className='card p-5 space-y-3'>
+						<div className='text-lg font-semibold'>Create a new room</div>
+						<button
+							className='rounded-2xl bg-indigo-600 px-5 py-3 font-medium text-white hover:bg-indigo-700'
+							onClick={createRoom}>
+							Create Room
+						</button>
+					</div>
+					<ResumeRoom onResume={resumeRoom} />
+				</div>
+			)}
 
-  const callNext = () => code && getSocket().emit("host:call_next", code);
-  const undo = () => code && getSocket().emit("host:undo", code);
-  const manualLock = (v: boolean) => code && getSocket().emit("host:set_locked", { code, locked: v });
+			{/* When hosting a room */}
+			{summary && (
+				<>
+					{/* Room card */}
+					<div className='card p-5 grid gap-4 md:grid-cols-[1fr_auto]'>
+						<div>
+							<div className='text-sm text-slate-500'>ROOM</div>
+							<div className='text-3xl font-bold tracking-widest'>{code}</div>
+							<div className='text-xs text-slate-500'>
+								Share: <span className='font-mono'>/play/{code}</span>
+							</div>
 
-  const currentRoundWinners = useMemo(
-    () => winners.filter((w) => w.round === round),
-    [winners, round]
-  );
+							<div className='mt-4 grid grid-cols-2 gap-3 sm:max-w-md'>
+								<button className='rounded-2xl bg-emerald-600 px-4 py-3 text-white' onClick={start}>
+									Start Round
+								</button>
+								<button className='rounded-2xl bg-indigo-600 px-4 py-3 text-white' onClick={callNext}>
+									Call Next
+								</button>
+								<button className='rounded-2xl bg-slate-200 px-4 py-3' onClick={undo}>
+									Undo
+								</button>
+								<div className='flex items-center text-sm text-slate-600'>
+									Last: <span className='ml-1 font-semibold'>{lastCalled ?? "—"}</span>
+								</div>
+							</div>
+						</div>
 
-  return (
-    <section className="space-y-6">
-      <h1 className="text-3xl font-extrabold tracking-tight">Host Console</h1>
+						<div className='justify-self-end'>
+							{/* ✅ react-qr-code uses `value`, not `text` */}
+							<div className='rounded-2xl border p-3 bg-white'>
+								<QRCode value={joinUrl} size={128} />
+							</div>
+							<div className='mt-2 text-center text-xs text-slate-500'>Scan to join</div>
+						</div>
+					</div>
 
-      {!code ? (
-        <div className="card p-6">
-          <p className="text-slate-600 mb-4">Create a room and share the link/code so everyone can join on their phones.</p>
-          <button className="rounded-2xl px-5 py-3 text-lg text-white bg-gradient-to-br from-indigo-500 to-indigo-700 hover:opacity-95 shadow-sm" onClick={createRoom}>
-            Create Room
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className="card p-5 flex flex-col gap-5">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <div className="text-xs uppercase tracking-widest text-slate-500">Round</div>
-                <div className="text-lg font-bold">#{round}</div>
+					{/* Called numbers */}
+					<div className='card p-5'>
+						<div className='text-sm font-semibold mb-3'>Called numbers ({history.length})</div>
+						<div className='flex flex-wrap gap-3'>
+							{history.map((n, i) => (
+								<LottoBall key={`${n}-${i}`} value={n} size='lg' />
+							))}
+						</div>
+					</div>
 
-                <div className="mt-2 text-xs uppercase tracking-widest text-slate-500">Room Code</div>
-                <div className="text-3xl font-black tracking-widest">{code}</div>
-                <div className="text-sm text-slate-500 break-all">Share: {shareUrl}</div>
-                <div className="mt-2 text-xs">
-                  <span className={`px-2 py-0.5 rounded-full ${locked ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
-                    {locked ? "Lobby Locked" : "Lobby Open"}
-                  </span>
-                </div>
-              </div>
+					{/* Settings */}
+					<div className='card p-5 space-y-4'>
+						<div className='text-sm font-semibold'>Win pattern</div>
+						<PatternPicker value={summary.pattern} onChange={setPattern} />
 
-              <div className="flex flex-wrap gap-3">
-                {!started ? (
-                  <button className="rounded-2xl px-5 py-3 text-lg text-white bg-gradient-to-br from-emerald-500 to-emerald-700 hover:opacity-95 shadow-sm" onClick={start}>
-                    Start Game
-                  </button>
-                ) : (
-                  <>
-                    <button className="rounded-2xl px-5 py-3 text-lg text-white bg-gradient-to-br from-amber-400 to-orange-600 hover:opacity-95 shadow-sm" onClick={callNext}>
-                      Call Next
-                    </button>
-                    <button className="rounded-2xl px-5 py-3 text-lg bg-white border hover:bg-slate-50 shadow-sm" onClick={undo}>
-                      Undo
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
+						<div className='grid gap-3 sm:grid-cols-3'>
+							<Toggle
+								checked={summary.allowAutoMark}
+								onChange={setAllowAuto}
+								label='Allow auto-mark for players'
+							/>
+							<Toggle
+								checked={summary.lockLobbyOnStart}
+								onChange={setLockOnStart}
+								label='Lock lobby when round starts'
+							/>
+							<Toggle checked={summary.locked} onChange={setLocked} label='Locked now' />
+						</div>
+					</div>
 
-            {/* QR code */}
-            {shareUrl && (
-              <div className="flex items-center gap-4">
-                <div className="bg-white p-3 rounded-2xl border shadow-sm">
-                  <QRCode value={shareUrl} size={180} style={{ height: "180px", width: "180px" }} aria-label="Join QR code" />
-                </div>
-                <div className="text-sm text-slate-600">
-                  Scan to join or visit:
-                  <div className="font-mono text-slate-800 break-all">{shareUrl}</div>
-                </div>
-              </div>
-            )}
+					{/* Players & Winners */}
+					<div className='grid gap-6 md:grid-cols-2'>
+						<div className='card p-5'>
+							<div className='text-sm font-semibold mb-2'>Players ({summary.players.length})</div>
+							{summary.players.length === 0 ? (
+								<div className='text-sm text-slate-500'>No players yet.</div>
+							) : (
+								<ul className='space-y-1'>
+									{summary.players.map(p => (
+										<li
+											key={p.id}
+											className='flex items-center justify-between rounded-xl border px-3 py-2'>
+											<span>{p.name}</span>
+											<span className='text-xs text-slate-500'>{p.cards} card(s)</span>
+										</li>
+									))}
+								</ul>
+							)}
+						</div>
 
-            {/* Pattern + Policies (apply before start) */}
-            {!started && (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-slate-600">Winning pattern</label>
-                  <select
-                    className="border rounded-xl p-2"
-                    value={pattern}
-                    onChange={(e) => setPattern(e.target.value as Pattern)}
-                    onBlur={applyPattern}
-                  >
-                    <option value="line">Any line (row/col)</option>
-                    <option value="diagonal">Diagonal</option>
-                    <option value="cross">Cross (+)</option>
-                    <option value="t">T-shape</option>
-                    <option value="l">L-shape</option>
-                    <option value="blackout">Blackout (full)</option>
-                  </select>
-                </div>
-
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={allowAutoMark} onChange={(e) => { setAllowAutoMark(e.target.checked); getSocket().emit("host:set_allow_automark", { code, allow: e.target.checked }); }} />
-                  Allow auto-mark for players
-                </label>
-
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={lockOnStart} onChange={(e) => { setLockOnStart(e.target.checked); getSocket().emit("host:set_lock_on_start", { code, lockOnStart: e.target.checked }); }} />
-                  Lock lobby on start
-                </label>
-
-                <div className="flex gap-2">
-                  <button className="rounded-xl px-3 py-1 text-sm border bg-white hover:bg-slate-50" onClick={() => manualLock(false)} disabled={!locked}>
-                    Unlock lobby
-                  </button>
-                  <button className="rounded-xl px-3 py-1 text-sm border bg-white hover:bg-slate-50" onClick={() => manualLock(true)} disabled={locked}>
-                    Lock lobby
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <CalledBoard last={last} history={history} />
-
-          <div className={`card p-4 ${currentRoundWinners.length ? "ring-2 ring-emerald-500" : ""}`}>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-semibold text-slate-700">Winner(s) this round:</span>
-              {currentRoundWinners.length === 0 ? (
-                <span className="text-sm text-slate-500">— none yet —</span>
-              ) : (
-                currentRoundWinners.map((w) => (
-                  <span key={w.playerId} className="px-3 py-1 rounded-2xl text-white bg-gradient-to-r from-emerald-500 to-emerald-700">
-                    {w.name} <span className="opacity-85 text-xs">({w.pattern}{typeof w.cardIndex==="number" ? ` · Card ${w.cardIndex+1}` : ""})</span>
-                  </span>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="card p-5">
-            <h2 className="text-lg font-semibold mb-3">Players</h2>
-            {players.length === 0 ? (
-              <p className="text-slate-500 text-sm">Waiting for players…</p>
-            ) : (
-              <ul className="flex flex-wrap gap-2">
-                {players.map((p) => (
-                  <li key={p.id} className="px-3 py-1 rounded-2xl border shadow-sm bg-white">
-                    <span className="font-semibold">{p.name || p.id.slice(0, 6)}</span>
-                    <span className="ml-2 text-xs text-slate-500">({p.cards} card{p.cards>1 ? "s" : ""})</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </>
-      )}
-    </section>
-  );
+						<div className='card p-5'>
+							<div className='text-sm font-semibold mb-2'>Winners ({summary.winners.length})</div>
+							{summary.winners.length === 0 ? (
+								<div className='text-sm text-slate-500'>None yet.</div>
+							) : (
+								<ul className='space-y-1'>
+									{summary.winners.map((w, i) => (
+										<li
+											key={w.playerId + i}
+											className='flex items-center justify-between rounded-xl border px-3 py-2'>
+											<div>
+												<span className='font-semibold'>{w.name}</span>{" "}
+												<span className='text-xs text-slate-500'>({w.pattern})</span>
+											</div>
+											<div className='text-xs text-slate-500'>after {w.at} calls</div>
+										</li>
+									))}
+								</ul>
+							)}
+						</div>
+					</div>
+				</>
+			)}
+		</section>
+	);
 }
