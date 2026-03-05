@@ -435,7 +435,248 @@
 // 	);
 // }
 
-// app/play/[code]/page.tsx
+// // app/play/[code]/page.tsx
+
+// "use client";
+
+// import { useParams } from "next/navigation";
+// import { useEffect, useMemo, useRef, useState } from "react";
+// import { getSocket, waitForConnected } from "@/app/lib/socket";
+// import { getClientId } from "@/app/lib/clientId";
+// import BingoCard from "@/app/components/BingoCard";
+// import LottoBall from "@/app/components/LottoBall";
+// import Toggle from "@/app/components/Toggle";
+// import toast from "react-hot-toast";
+
+// type PatternType = "line" | "x" | "plus" | "blackout" | "corners" | "t" | "l";
+
+// function colorFromId(id: string) {
+// 	let h = 0;
+// 	for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+// 	return `hsl(${h} 85% 45%)`;
+// }
+// function shortId(id: string) {
+// 	return id.slice(-4).toUpperCase();
+// }
+
+// export default function PlayerPage() {
+// 	const params = useParams<{ code: string }>();
+// 	const code = (params.code || "").toString().toUpperCase();
+// 	const clientId = getClientId();
+
+// 	const [name, setName] = useState("");
+// 	const [joined, setJoined] = useState(false);
+// 	const [stickyName, setStickyName] = useState<string>("");
+
+// 	const [cards, setCards] = useState<number[][][]>([]);
+// 	const [activeCard, setActiveCard] = useState(0);
+// 	const [history, setHistory] = useState<number[]>([]);
+// 	const [allowAutoMark, setAllowAutoMark] = useState(true);
+// 	const [autoMark, setAutoMark] = useState(true);
+// 	const [marks, setMarks] = useState<[number, number][][]>([]);
+// 	const [desiredCards, setDesiredCards] = useState(1);
+// 	const [locked, setLocked] = useState(false);
+
+// 	const [pattern, setPattern] = useState<PatternType>("line");
+// 	const [players, setPlayers] = useState<{ id: string; name: string; cards: number }[]>([]);
+// 	const [winners, setWinners] = useState<
+// 		{ playerId: string; name: string; pattern: string; at: number; cardIndex: number }[]
+// 	>([]);
+// 	const [started, setStarted] = useState(false);
+// 	const [paused, setPaused] = useState(false);
+
+// 	const [waitingMsg, setWaitingMsg] = useState<string>("");
+
+// 	const calledSet = useMemo(() => new Set(history), [history]);
+// 	const retryRef = useRef<number>(0);
+
+// 	// keep marks size synced
+// 	useEffect(() => {
+// 		setMarks(prev => (prev.length === cards.length ? prev : cards.map((_, i) => prev[i] ?? [])));
+// 	}, [cards.length]);
+
+// 	useEffect(() => {
+// 		const socket = getSocket();
+
+// 		const onRoomUpdated = (summary: any) => {
+// 			if (typeof summary.allowAutoMark === "boolean") {
+// 				setAllowAutoMark(summary.allowAutoMark);
+// 				if (!summary.allowAutoMark) setAutoMark(false);
+// 			}
+// 			if (typeof summary.locked === "boolean") setLocked(summary.locked);
+// 			if (typeof summary.pattern === "string") setPattern(summary.pattern as PatternType);
+// 			if (Array.isArray(summary.players)) setPlayers(summary.players);
+// 			if (Array.isArray(summary.winners)) setWinners(summary.winners);
+// 			if (typeof summary.started === "boolean") setStarted(summary.started);
+// 			if (typeof summary.paused === "boolean") setPaused(summary.paused);
+// 		};
+
+// 		const onStarted = () => {
+// 			setHistory([]);
+// 			setWinners([]);
+// 			setStarted(true);
+// 			setPaused(false);
+// 			toast("New round!", { icon: "🎬" });
+// 		};
+// 		const onCalled = ({ n, history }: { n: number; history: number[] }) => {
+// 			setHistory(history);
+// 			toast(`Called: ${n}`, { icon: "🔔", duration: 900 });
+// 		};
+// 		const onUndo = ({ history }: { history: number[] }) => {
+// 			setHistory(history);
+// 			toast("Host undid last call", { icon: "↩️", duration: 900 });
+// 		};
+// 		const onWinner = (w: any) => {
+// 			setWinners(prev => (prev.some(x => x.playerId === w.playerId) ? prev : [...prev, w]));
+// 			toast.success(`🎉 ${w.name} has BINGO! (${w.pattern})`);
+// 		};
+// 		const onActiveCard = (idx: number) => setActiveCard(idx);
+// 		const onMarksCorrected = (payload: { cardIndex: number; marks: [number, number][] }) => {
+// 			setMarks(prev => {
+// 				const next = prev.slice();
+// 				next[payload.cardIndex] = payload.marks;
+// 				return next;
+// 			});
+// 			toast("Incorrect marks cleared on this card", { icon: "🧹", duration: 1500 });
+// 		};
+// 		const onNewRound = (payload: { cards: number[][][]; activeCard: number; roundId: number }) => {
+// 			setCards(payload.cards);
+// 			setActiveCard(payload.activeCard ?? 0);
+// 			setMarks(payload.cards.map(() => []));
+// 			setHistory([]);
+// 		};
+
+// 		socket.on("room:updated", onRoomUpdated);
+// 		socket.on("room:winners", setWinners);
+// 		socket.on("policy:allow_automark", (v: boolean) => {
+// 			setAllowAutoMark(v);
+// 			if (!v) setAutoMark(false);
+// 		});
+// 		socket.on("policy:locked", setLocked);
+// 		socket.on("game:started", onStarted);
+// 		socket.on("game:called", onCalled);
+// 		socket.on("game:undo", onUndo);
+// 		socket.on("game:winner", onWinner);
+// 		socket.on("player:active_card", onActiveCard);
+// 		socket.on("player:marks_corrected", onMarksCorrected);
+// 		socket.on("player:new_round", onNewRound);
+// 		socket.on("room:deleted", () => {
+// 			setJoined(false);
+// 			setCards([]);
+// 			setHistory([]);
+// 			setWinners([]);
+// 			toast("Room was deleted by host.", { icon: "🗑️" });
+// 		});
+
+// 		return () => {
+// 			socket.off("room:updated", onRoomUpdated);
+// 			socket.off("room:winners", setWinners);
+// 			socket.off("policy:allow_automark");
+// 			socket.off("policy:locked");
+// 			socket.off("game:started", onStarted);
+// 			socket.off("game:called", onCalled);
+// 			socket.off("game:undo", onUndo);
+// 			socket.off("game:winner", onWinner);
+// 			socket.off("player:active_card", onActiveCard);
+// 			socket.off("player:marks_corrected", onMarksCorrected);
+// 			socket.off("player:new_round", onNewRound);
+// 			socket.off("room:deleted");
+// 		};
+// 	}, []);
+
+// 	// Verify room exists early
+// 	useEffect(() => {
+// 		(async () => {
+// 			const socket = getSocket();
+// 			await waitForConnected(socket);
+// 			const tryWatch = () => {
+// 				socket.emit("room:watch", code, (res: any) => {
+// 					if (res?.ok && res.summary) {
+// 						setWaitingMsg("");
+// 						return;
+// 					}
+// 					const attempt = ++retryRef.current;
+// 					const delay = Math.min(500 * 2 ** (attempt - 1), 5000);
+// 					setWaitingMsg("Waiting for host to create the room…");
+// 					setTimeout(tryWatch, delay);
+// 				});
+// 			};
+// 			socket.emit("room:exists", code, (res: any) => {
+// 				if (!res?.ok) setWaitingMsg("Room not found (maybe deleted)");
+// 				tryWatch();
+// 			});
+// 		})();
+// 	}, [code]);
+
+// 	const join = () => {
+// 		if (!name.trim() && !stickyName) return toast.error("Enter your name");
+// 		getSocket().emit(
+// 			"player:join",
+// 			{
+// 				code,
+// 				name: stickyName || name.trim(),
+// 				clientId,
+// 				cardCount: desiredCards,
+// 				autoMark,
+// 				manual: !autoMark,
+// 				marks
+// 			},
+// 			(res: any) => {
+// 				if (!res?.ok) return toast.error(res?.msg || "Join failed");
+// 				setCards(res.cards || []);
+// 				setJoined(true);
+// 				if (res.name) {
+// 					setStickyName(res.name);
+// 					setName(res.name);
+// 				}
+// 				if (typeof res.allowAutoMark === "boolean") {
+// 					setAllowAutoMark(res.allowAutoMark);
+// 					if (!res.allowAutoMark) setAutoMark(false);
+// 				}
+// 				if (typeof res.activeCard === "number") setActiveCard(res.activeCard);
+// 				toast.success("You joined the game");
+// 			}
+// 		);
+// 	};
+
+// 	const claim = () => {
+// 		getSocket().emit("player:claim_bingo", code, clientId, activeCard, (res: any) => {
+// 			if (!res?.ok) return toast.error(res?.msg || "Not valid yet");
+// 			toast("Claim sent!", { icon: "📣" });
+// 		});
+// 	};
+
+// 	const toggleCell = (r: number, c: number) => {
+// 		if (autoMark) return;
+// 		setMarks(prev => {
+// 			const next = prev.map(x => x.slice());
+// 			const arr = next[activeCard] ?? [];
+// 			const i = arr.findIndex(([rr, cc]) => rr === r && cc === c);
+// 			if (i >= 0) arr.splice(i, 1);
+// 			else if (arr.length < 25) arr.push([r, c]);
+// 			next[activeCard] = arr;
+// 			return next;
+// 		});
+// 	};
+
+// 	const last = history.length ? history[history.length - 1] : null;
+
+// 	return (
+// 		<section className='space-y-5'>
+// 			{/* Top: room + last number */}
+// 			<div className='grid gap-3 md:grid-cols-2'>
+// 				<div className='card p-4 text-center'>
+// 					<div className='text-xs uppercase tracking-widest text-slate-500'>Room</div>
+// 					<div className='text-2xl font-bold tracking-widest'>{code}</div>
+// 					{!!(!joined && waitingMsg) && <div className='text-xs text-slate-500 mt-2'>{waitingMsg}</div>}
+// 				</div>
+
+// 				<div className='card p-4 grid place-items-center'>
+// 					<div className='text-xs uppercase tracking-widest text-slate-500 mb-1'>Last Number</div>
+// 					<LottoBall value={last ?? "—"} size='lg' />
+// 				</div>
+// 			</div>
+
 "use client";
 
 import { useParams } from "next/navigation";
@@ -446,6 +687,7 @@ import BingoCard from "@/app/components/BingoCard";
 import LottoBall from "@/app/components/LottoBall";
 import Toggle from "@/app/components/Toggle";
 import toast from "react-hot-toast";
+import { sfx, burstConfetti } from "@/app/lib/sfx";
 
 type PatternType = "line" | "x" | "plus" | "blackout" | "corners" | "t" | "l";
 
@@ -454,6 +696,7 @@ function colorFromId(id: string) {
 	for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
 	return `hsl(${h} 85% 45%)`;
 }
+
 function shortId(id: string) {
 	return id.slice(-4).toUpperCase();
 }
@@ -489,7 +732,6 @@ export default function PlayerPage() {
 	const calledSet = useMemo(() => new Set(history), [history]);
 	const retryRef = useRef<number>(0);
 
-	// keep marks size synced
 	useEffect(() => {
 		setMarks(prev => (prev.length === cards.length ? prev : cards.map((_, i) => prev[i] ?? [])));
 	}, [cards.length]);
@@ -515,21 +757,40 @@ export default function PlayerPage() {
 			setWinners([]);
 			setStarted(true);
 			setPaused(false);
+
+			sfx.play("start");
+			burstConfetti(0.4);
+
 			toast("New round!", { icon: "🎬" });
 		};
+
 		const onCalled = ({ n, history }: { n: number; history: number[] }) => {
 			setHistory(history);
+
+			sfx.play("call");
+
 			toast(`Called: ${n}`, { icon: "🔔", duration: 900 });
 		};
+
 		const onUndo = ({ history }: { history: number[] }) => {
 			setHistory(history);
+
+			sfx.play("undo");
+
 			toast("Host undid last call", { icon: "↩️", duration: 900 });
 		};
+
 		const onWinner = (w: any) => {
 			setWinners(prev => (prev.some(x => x.playerId === w.playerId) ? prev : [...prev, w]));
+
+			sfx.play("winner");
+			burstConfetti(1);
+
 			toast.success(`🎉 ${w.name} has BINGO! (${w.pattern})`);
 		};
+
 		const onActiveCard = (idx: number) => setActiveCard(idx);
+
 		const onMarksCorrected = (payload: { cardIndex: number; marks: [number, number][] }) => {
 			setMarks(prev => {
 				const next = prev.slice();
@@ -538,6 +799,7 @@ export default function PlayerPage() {
 			});
 			toast("Incorrect marks cleared on this card", { icon: "🧹", duration: 1500 });
 		};
+
 		const onNewRound = (payload: { cards: number[][][]; activeCard: number; roundId: number }) => {
 			setCards(payload.cards);
 			setActiveCard(payload.activeCard ?? 0);
@@ -559,11 +821,15 @@ export default function PlayerPage() {
 		socket.on("player:active_card", onActiveCard);
 		socket.on("player:marks_corrected", onMarksCorrected);
 		socket.on("player:new_round", onNewRound);
+
 		socket.on("room:deleted", () => {
 			setJoined(false);
 			setCards([]);
 			setHistory([]);
 			setWinners([]);
+
+			sfx.play("error");
+
 			toast("Room was deleted by host.", { icon: "🗑️" });
 		});
 
@@ -583,23 +849,27 @@ export default function PlayerPage() {
 		};
 	}, []);
 
-	// Verify room exists early
 	useEffect(() => {
 		(async () => {
 			const socket = getSocket();
 			await waitForConnected(socket);
+
 			const tryWatch = () => {
 				socket.emit("room:watch", code, (res: any) => {
 					if (res?.ok && res.summary) {
 						setWaitingMsg("");
 						return;
 					}
+
 					const attempt = ++retryRef.current;
 					const delay = Math.min(500 * 2 ** (attempt - 1), 5000);
+
 					setWaitingMsg("Waiting for host to create the room…");
+
 					setTimeout(tryWatch, delay);
 				});
 			};
+
 			socket.emit("room:exists", code, (res: any) => {
 				if (!res?.ok) setWaitingMsg("Room not found (maybe deleted)");
 				tryWatch();
@@ -608,7 +878,13 @@ export default function PlayerPage() {
 	}, [code]);
 
 	const join = () => {
-		if (!name.trim() && !stickyName) return toast.error("Enter your name");
+		if (!name.trim() && !stickyName) {
+			sfx.play("error");
+			return toast.error("Enter your name");
+		}
+
+		sfx.play("click");
+
 		getSocket().emit(
 			"player:join",
 			{
@@ -621,39 +897,59 @@ export default function PlayerPage() {
 				marks
 			},
 			(res: any) => {
-				if (!res?.ok) return toast.error(res?.msg || "Join failed");
+				if (!res?.ok) {
+					sfx.play("error");
+					return toast.error(res?.msg || "Join failed");
+				}
+
 				setCards(res.cards || []);
 				setJoined(true);
+
+				sfx.play("join");
+
 				if (res.name) {
 					setStickyName(res.name);
 					setName(res.name);
 				}
+
 				if (typeof res.allowAutoMark === "boolean") {
 					setAllowAutoMark(res.allowAutoMark);
 					if (!res.allowAutoMark) setAutoMark(false);
 				}
+
 				if (typeof res.activeCard === "number") setActiveCard(res.activeCard);
+
 				toast.success("You joined the game");
 			}
 		);
 	};
 
 	const claim = () => {
+		sfx.play("click");
+
 		getSocket().emit("player:claim_bingo", code, clientId, activeCard, (res: any) => {
-			if (!res?.ok) return toast.error(res?.msg || "Not valid yet");
+			if (!res?.ok) {
+				sfx.play("error");
+				return toast.error(res?.msg || "Not valid yet");
+			}
 			toast("Claim sent!", { icon: "📣" });
 		});
 	};
 
 	const toggleCell = (r: number, c: number) => {
 		if (autoMark) return;
+
 		setMarks(prev => {
 			const next = prev.map(x => x.slice());
 			const arr = next[activeCard] ?? [];
+
 			const i = arr.findIndex(([rr, cc]) => rr === r && cc === c);
+
 			if (i >= 0) arr.splice(i, 1);
 			else if (arr.length < 25) arr.push([r, c]);
+
 			next[activeCard] = arr;
+
 			return next;
 		});
 	};
@@ -661,20 +957,25 @@ export default function PlayerPage() {
 	const last = history.length ? history[history.length - 1] : null;
 
 	return (
-		<section className='space-y-5'>
-			{/* Top: room + last number */}
-			<div className='grid gap-3 md:grid-cols-2'>
-				<div className='card p-4 text-center'>
-					<div className='text-xs uppercase tracking-widest text-slate-500'>Room</div>
-					<div className='text-2xl font-bold tracking-widest'>{code}</div>
-					{!!(!joined && waitingMsg) && <div className='text-xs text-slate-500 mt-2'>{waitingMsg}</div>}
+		<section className="space-y-5">
+			<div className="grid gap-3 md:grid-cols-2">
+				<div className="card p-4 text-center">
+					<div className="text-xs uppercase tracking-widest text-slate-500">Room</div>
+					<div className="text-2xl font-bold tracking-widest">{code}</div>
+					{!!(!joined && waitingMsg) && (
+						<div className="text-xs text-slate-500 mt-2">{waitingMsg}</div>
+					)}
 				</div>
 
-				<div className='card p-4 grid place-items-center'>
-					<div className='text-xs uppercase tracking-widest text-slate-500 mb-1'>Last Number</div>
-					<LottoBall value={last ?? "—"} size='lg' />
+				<div className="card p-4 grid place-items-center">
+					<div className="text-xs uppercase tracking-widest text-slate-500 mb-1">
+						Last Number
+					</div>
+					<LottoBall value={last ?? "—"} size="lg" />
 				</div>
 			</div>
+
+			{/* UI BELOW REMAINS IDENTICAL TO YOUR ORIGINAL FILE */}
 
 			{!joined ? (
 				<div className='card p-5 space-y-4 max-w-md mx-auto'>
