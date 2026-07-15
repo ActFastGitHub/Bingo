@@ -690,6 +690,20 @@ import toast from "react-hot-toast";
 import { sfx, burstConfetti } from "@/app/lib/sfx";
 
 type PatternType = "line" | "x" | "plus" | "blackout" | "corners" | "t" | "l";
+type PlayerLite = { id: string; name: string; cards: number };
+type WinnerLite = { playerId: string; name: string; pattern: string; at: number; cardIndex: number };
+type RoomSummary = {
+	allowAutoMark?: boolean;
+	locked?: boolean;
+	pattern?: PatternType;
+	players?: PlayerLite[];
+	winners?: WinnerLite[];
+	started?: boolean;
+	paused?: boolean;
+};
+type RoomWatchResponse = { ok?: boolean; summary?: RoomSummary };
+type JoinResponse = { ok?: boolean; msg?: string; cards?: number[][][]; name?: string; allowAutoMark?: boolean; activeCard?: number };
+type OkResponse = { ok?: boolean; msg?: string };
 
 function colorFromId(id: string) {
 	let h = 0;
@@ -720,10 +734,8 @@ export default function PlayerPage() {
 	const [locked, setLocked] = useState(false);
 
 	const [pattern, setPattern] = useState<PatternType>("line");
-	const [players, setPlayers] = useState<{ id: string; name: string; cards: number }[]>([]);
-	const [winners, setWinners] = useState<
-		{ playerId: string; name: string; pattern: string; at: number; cardIndex: number }[]
-	>([]);
+	const [players, setPlayers] = useState<PlayerLite[]>([]);
+	const [winners, setWinners] = useState<WinnerLite[]>([]);
 	const [started, setStarted] = useState(false);
 	const [paused, setPaused] = useState(false);
 
@@ -733,13 +745,9 @@ export default function PlayerPage() {
 	const retryRef = useRef<number>(0);
 
 	useEffect(() => {
-		setMarks(prev => (prev.length === cards.length ? prev : cards.map((_, i) => prev[i] ?? [])));
-	}, [cards.length]);
-
-	useEffect(() => {
 		const socket = getSocket();
 
-		const onRoomUpdated = (summary: any) => {
+		const onRoomUpdated = (summary: RoomSummary) => {
 			if (typeof summary.allowAutoMark === "boolean") {
 				setAllowAutoMark(summary.allowAutoMark);
 				if (!summary.allowAutoMark) setAutoMark(false);
@@ -780,7 +788,7 @@ export default function PlayerPage() {
 			toast("Host undid last call", { icon: "↩️", duration: 900 });
 		};
 
-		const onWinner = (w: any) => {
+		const onWinner = (w: WinnerLite) => {
 			setWinners(prev => (prev.some(x => x.playerId === w.playerId) ? prev : [...prev, w]));
 
 			sfx.play("winner");
@@ -855,7 +863,7 @@ export default function PlayerPage() {
 			await waitForConnected(socket);
 
 			const tryWatch = () => {
-				socket.emit("room:watch", code, (res: any) => {
+				socket.emit("room:watch", code, (res: RoomWatchResponse) => {
 					if (res?.ok && res.summary) {
 						setWaitingMsg("");
 						return;
@@ -870,7 +878,7 @@ export default function PlayerPage() {
 				});
 			};
 
-			socket.emit("room:exists", code, (res: any) => {
+			socket.emit("room:exists", code, (res: OkResponse) => {
 				if (!res?.ok) setWaitingMsg("Room not found (maybe deleted)");
 				tryWatch();
 			});
@@ -896,13 +904,15 @@ export default function PlayerPage() {
 				manual: !autoMark,
 				marks
 			},
-			(res: any) => {
+			(res: JoinResponse) => {
 				if (!res?.ok) {
 					sfx.play("error");
 					return toast.error(res?.msg || "Join failed");
 				}
 
-				setCards(res.cards || []);
+				const nextCards = res.cards || [];
+				setCards(nextCards);
+				setMarks(nextCards.map(() => []));
 				setJoined(true);
 
 				sfx.play("join");
@@ -927,13 +937,19 @@ export default function PlayerPage() {
 	const claim = () => {
 		sfx.play("click");
 
-		getSocket().emit("player:claim_bingo", code, clientId, activeCard, (res: any) => {
+		getSocket().emit("player:claim_bingo", code, clientId, activeCard, (res: OkResponse) => {
 			if (!res?.ok) {
 				sfx.play("error");
 				return toast.error(res?.msg || "Not valid yet");
 			}
 			toast("Claim sent!", { icon: "📣" });
 		});
+	};
+
+	const switchCard = (index: number) => {
+		setActiveCard(index);
+		getSocket().emit("player:switch_card", code, clientId, index);
+		sfx.play("click");
 	};
 
 	const toggleCell = (r: number, c: number) => {
@@ -957,175 +973,58 @@ export default function PlayerPage() {
 	const last = history.length ? history[history.length - 1] : null;
 
 	return (
-		<section className="space-y-5">
-			<div className="grid gap-3 md:grid-cols-2">
-				<div className="card p-4 text-center">
-					<div className="text-xs uppercase tracking-widest text-slate-500">Room</div>
-					<div className="text-2xl font-bold tracking-widest">{code}</div>
-					{!!(!joined && waitingMsg) && (
-						<div className="text-xs text-slate-500 mt-2">{waitingMsg}</div>
-					)}
+		<section className='space-y-6'>
+			<div className='grid gap-4 md:grid-cols-[1fr_auto]'>
+				<div className='card flex flex-col justify-between gap-4 bg-[#17181c] p-5 text-white sm:flex-row sm:items-center sm:p-6'>
+					<div><p className='text-xs font-black uppercase tracking-[.16em] text-white/45'>Room</p><div className='mt-1 font-mono text-3xl font-black tracking-[.18em]'>{code}</div>{!joined && waitingMsg && <p className='mt-2 text-xs text-amber-300'>{waitingMsg}</p>}</div>
+					<span className='status-pill border-white/10 bg-white/10 text-white'><span className={`status-dot ${paused ? "bg-amber-400" : started ? "bg-emerald-400" : "bg-slate-400"}`} />{paused ? "Winner found" : started ? "Round live" : "Waiting for host"}</span>
 				</div>
-
-				<div className="card p-4 grid place-items-center">
-					<div className="text-xs uppercase tracking-widest text-slate-500 mb-1">
-						Last Number
-					</div>
-					<LottoBall value={last ?? "—"} size="lg" />
+				<div className='card flex min-w-[180px] items-center justify-center gap-4 p-4 sm:p-5'>
+					<div><p className='metric-label'>Last number</p><p className='mt-1 text-xs font-bold text-slate-500'>{history.length} called</p></div>
+					<LottoBall value={last ?? "—"} size='lg' glow />
 				</div>
 			</div>
 
-			{/* UI BELOW REMAINS IDENTICAL TO YOUR ORIGINAL FILE */}
-
 			{!joined ? (
-				<div className='card p-5 space-y-4 max-w-md mx-auto'>
-					<input
-						className='w-full border rounded-2xl p-3'
-						placeholder='Your name'
-						value={name}
-						onChange={e => setName(e.target.value)}
-						disabled={!!stickyName}
-					/>
-					{stickyName && (
-						<div className='text-xs text-slate-500'>
-							Name is locked for this room as <span className='font-semibold'>{stickyName}</span>.
-						</div>
-					)}
-
-					<div className='flex items-center justify-between gap-2'>
-						<label className='text-sm text-slate-600'>Number of cards</label>
-						<select
-							className='border rounded-xl p-2'
-							value={desiredCards}
-							onChange={e => setDesiredCards(Math.max(1, Math.min(4, Number(e.target.value))))}
-							disabled={stickyName !== ""}>
-							{[1, 2, 3, 4].map(n => (
-								<option key={n} value={n}>
-									{n}
-								</option>
-							))}
-						</select>
+				<div className='mx-auto grid max-w-4xl gap-6 py-4 lg:grid-cols-[.82fr_1.18fr]'>
+					<div className='rounded-[1.4rem] bg-[#ef2b2d] p-6 text-white shadow-[0_18px_45px_rgba(201,21,33,.2)] sm:p-8'>
+						<p className='text-xs font-black uppercase tracking-[.16em] text-white/65'>You&apos;re almost in</p>
+						<h1 className='mt-3 text-4xl font-black leading-none tracking-tight'>Pick your cards. Bring your luck.</h1>
+						<p className='mt-4 text-sm leading-relaxed text-white/80'>Choose how you want to play, then wait for the host to start the next round.</p>
+						<div className='mt-8 grid grid-cols-3 gap-2 border-t border-white/20 pt-5 text-center'><div><div className='text-xl font-black'>{players.length}</div><div className='text-[10px] uppercase tracking-wider text-white/60'>Players</div></div><div><div className='text-xl font-black uppercase'>{pattern}</div><div className='text-[10px] uppercase tracking-wider text-white/60'>Pattern</div></div><div><div className='text-xl font-black'>{locked ? "Yes" : "No"}</div><div className='text-[10px] uppercase tracking-wider text-white/60'>Locked</div></div></div>
 					</div>
 
-					<Toggle
-						checked={autoMark}
-						onChange={v => setAutoMark(v)}
-						disabled={!allowAutoMark}
-						label='Auto-mark tiles when numbers are called'
-					/>
-
-					<button
-						className='w-full rounded-2xl px-5 py-3 text-lg text-white bg-gradient-to-br from-indigo-500 to-indigo-700 hover:opacity-95 shadow-sm disabled:opacity-50'
-						onClick={join}
-						disabled={locked && !stickyName}>
-						Join Game
-					</button>
+					<div className='card p-6 sm:p-8'>
+						<p className='metric-label'>Player setup</p>
+						<h2 className='mt-1 text-2xl font-black'>Join room {code}</h2>
+						<div className='mt-6 space-y-5'>
+							<div><label htmlFor='player-name' className='mb-2 block text-sm font-bold text-slate-700'>Your name</label><input id='player-name' className='h-14 w-full rounded-2xl border px-4 text-lg font-bold' placeholder='What should we call you?' maxLength={40} value={name} onChange={event => setName(event.target.value)} disabled={!!stickyName} />{stickyName && <p className='mt-2 text-xs text-slate-500'>Returning as <strong>{stickyName}</strong> on this device.</p>}</div>
+							<div><label htmlFor='card-count' className='mb-2 block text-sm font-bold text-slate-700'>Number of cards</label><select id='card-count' className='h-12 w-full rounded-xl border px-3' value={desiredCards} onChange={event => setDesiredCards(Math.max(1, Math.min(4, Number(event.target.value))))} disabled={stickyName !== ""}>{[1, 2, 3, 4].map(number => <option key={number} value={number}>{number} card{number === 1 ? "" : "s"}</option>)}</select></div>
+							<div className='rounded-2xl border border-[#e8e4df] bg-[#fbfaf8] p-4'><Toggle checked={autoMark} onChange={setAutoMark} disabled={!allowAutoMark} label='Automatically mark tiles as numbers are called' />{!allowAutoMark && <p className='mt-2 pl-[60px] text-xs text-slate-500'>The host has chosen manual marking for this game.</p>}</div>
+							<button type='button' className='btn-primary w-full text-base' onClick={join} disabled={locked && !stickyName}>{locked && !stickyName ? "Lobby is locked" : "Join game"} <span aria-hidden>→</span></button>
+						</div>
+					</div>
 				</div>
 			) : (
 				<>
-					{/* Identity + status */}
-					<div className='card p-3 grid gap-3 sm:grid-cols-3'>
-						<div className='text-sm flex items-center gap-2'>
-							<span
-								aria-hidden
-								className='inline-block h-2.5 w-2.5 rounded-full'
-								style={{ background: colorFromId(clientId) }}
-							/>
-							<div>
-								<div className='text-[11px] text-slate-500'>You are</div>
-								<div className='font-semibold'>
-									{name}{" "}
-									<span className='text-xs text-slate-500 font-mono'>#{shortId(clientId)}</span>
-								</div>
-							</div>
-						</div>
-						<div className='text-sm'>
-							<div className='text-[11px] text-slate-500'>Pattern</div>
-							<div className='font-semibold uppercase'>{pattern}</div>
-						</div>
-						<div className='text-sm'>
-							<div className='text-[11px] text-slate-500'>Round</div>
-							<div className='font-semibold'>
-								{started ? (paused ? "Paused (winner)" : "In progress") : "Waiting"}
-							</div>
-						</div>
+					<div className='card grid gap-4 p-4 sm:grid-cols-3 sm:p-5'>
+						<div className='flex items-center gap-3'><span className='h-3 w-3 rounded-full' style={{ background: colorFromId(clientId) }} /><div><p className='metric-label'>Playing as</p><p className='font-black'>{name} <span className='font-mono text-xs font-normal text-slate-400'>#{shortId(clientId)}</span></p></div></div>
+						<div><p className='metric-label'>Win pattern</p><p className='mt-1 font-black uppercase'>{pattern}</p></div>
+						<div><p className='metric-label'>Round status</p><p className='mt-1 font-black'>{paused ? "Winner found—round paused" : started ? "In progress" : "Waiting for host"}</p></div>
 					</div>
 
-					{/* Players + Winners */}
-					<div className='grid gap-4 sm:grid-cols-2'>
-						<div className='card p-3'>
-							<div className='text-sm font-semibold mb-1'>Players ({players.length})</div>
-							<div className='flex flex-wrap gap-2'>
-								{players.map(p => (
-									<span
-										key={p.id}
-										className={`px-2 py-0.5 rounded-full border text-xs ${
-											p.id === clientId ? "bg-indigo-50 border-indigo-200" : "bg-white"
-										}`}>
-										<span
-											aria-hidden
-											className='inline-block h-2 w-2 rounded-full mr-1'
-											style={{ background: colorFromId(p.id) }}
-										/>
-										{p.name}
-										{p.id === clientId && " (you)"}
-									</span>
-								))}
-							</div>
-						</div>
-						<div className='card p-3'>
-							<div className='text-sm font-semibold mb-1'>Winners</div>
-							{winners.length === 0 ? (
-								<div className='text-xs text-slate-500'>None yet</div>
-							) : (
-								<div className='flex flex-wrap gap-2'>
-									{winners.map((w, i) => (
-										<span
-											key={w.playerId + i}
-											className='px-2 py-0.5 rounded-full border bg-emerald-50 text-xs'>
-											{w.name} ({w.pattern})
-										</span>
-									))}
-								</div>
-							)}
-						</div>
-					</div>
-
-					{/* Card + Controls */}
-					<div className='grid gap-5 lg:grid-cols-[minmax(260px,420px),1fr]'>
-						<div className='card p-4'>
-							<BingoCard
-								card={cards[activeCard]}
-								calledSet={calledSet}
-								manual={!autoMark}
-								marks={marks[activeCard] ?? []}
-								onToggle={toggleCell}
-							/>
-							<div className='flex justify-between items-center gap-2 mt-4'>
-								<Toggle
-									checked={autoMark}
-									onChange={v => setAutoMark(v)}
-									disabled={!allowAutoMark}
-									label='Auto-mark'
-								/>
-								<button
-									className='rounded-2xl px-5 py-3 text-lg text-white bg-gradient-to-br from-emerald-500 to-emerald-700 hover:opacity-95 shadow-sm'
-									onClick={claim}
-									disabled={paused}>
-									{paused ? "Round Paused" : "Claim BINGO!"}
-								</button>
-							</div>
+					<div className='grid gap-6 lg:grid-cols-[minmax(320px,480px)_1fr]'>
+						<div className='card p-4 sm:p-6'>
+							{cards.length > 1 && <div className='mb-5 flex flex-wrap items-center justify-between gap-3'><p className='text-sm font-black'>Your cards</p><div className='flex gap-2' role='group' aria-label='Choose bingo card'>{cards.map((_, index) => <button type='button' key={index} onClick={() => switchCard(index)} aria-pressed={activeCard === index} className={`grid h-9 w-9 place-items-center rounded-xl border text-sm font-black ${activeCard === index ? "border-[#ef2b2d] bg-red-50 text-[#b42318]" : "border-[#e8e4df] bg-white text-slate-600"}`}>{index + 1}</button>)}</div></div>}
+							<BingoCard card={cards[activeCard]} calledSet={calledSet} manual={!autoMark} marks={marks[activeCard] ?? []} onToggle={toggleCell} />
+							<div className='mt-5 space-y-4 border-t border-[#e8e4df] pt-5'><Toggle checked={autoMark} onChange={setAutoMark} disabled={!allowAutoMark} label='Auto-mark this card' /><button type='button' className='btn-success w-full text-lg' onClick={claim} disabled={paused || !started}>{paused ? "Round paused" : started ? "Claim BINGO!" : "Waiting for round"}</button></div>
 						</div>
 
-						<div className='card p-4'>
-							<div className='text-slate-600 text-sm mb-2'>Called numbers ({history.length})</div>
-							<div className='flex flex-wrap gap-3'>
-								{history
-									.slice(-60)
-									.reverse()
-									.map((n, i) => (
-										<LottoBall key={`${n}-${i}`} value={n} size='lg' />
-									))}
+						<div className='space-y-6'>
+							<div className='card p-5 sm:p-6'><div className='mb-5 flex items-center justify-between'><div><p className='metric-label'>Draw history</p><h2 className='mt-1 text-xl font-black'>Called numbers</h2></div><span className='status-pill'>{history.length} of 75</span></div>{history.length === 0 ? <div className='empty-state'>Numbers will appear here when the host starts calling.</div> : <div className='flex flex-wrap gap-3'>{history.slice(-60).reverse().map((number, index) => <LottoBall key={`${number}-${index}`} value={number} size='lg' />)}</div>}</div>
+							<div className='grid gap-6 sm:grid-cols-2'>
+								<div className='card p-5'><div className='mb-3 flex items-center justify-between'><h2 className='font-black'>Players</h2><span className='text-xs font-bold text-slate-400'>{players.length}</span></div>{players.length === 0 ? <div className='text-sm text-slate-500'>Waiting for players.</div> : <div className='flex flex-wrap gap-2'>{players.map(player => <span key={player.id} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${player.id === clientId ? "border-red-200 bg-red-50 text-[#b42318]" : "border-[#e8e4df] bg-white text-slate-600"}`}><span className='h-2 w-2 rounded-full' style={{ background: colorFromId(player.id) }} />{player.name}{player.id === clientId && " (you)"}</span>)}</div>}</div>
+								<div className='card p-5'><div className='mb-3 flex items-center justify-between'><h2 className='font-black'>Winners</h2><span className='text-xs font-bold text-slate-400'>{winners.length}</span></div>{winners.length === 0 ? <div className='text-sm text-slate-500'>No winners yet.</div> : <div className='space-y-2'>{winners.map((winner, index) => <div key={winner.playerId + index} className='rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold'>★ {winner.name} <span className='text-xs font-normal text-slate-500'>({winner.pattern})</span></div>)}</div>}</div>
 							</div>
 						</div>
 					</div>

@@ -2,19 +2,233 @@
 @tailwind components;
 @tailwind utilities;
 
-/* System stack, nice and simple */
-html, body { height: 100%; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+:root {
+  --actfast-red: #ef2b2d;
+  --actfast-red-dark: #c91521;
+  --actfast-ink: #17181c;
+  --actfast-muted: #667085;
+  --actfast-line: #e8e4df;
+  --actfast-cream: #f7f4ef;
+  --actfast-gold: #f6b84b;
+  --ring: 239 43 45;
+}
 
-/* Focus ring */
-:root { --ring: 15 23 42; }
-button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid rgb(var(--ring)); outline-offset: 2px; }
+* { box-sizing: border-box; }
 
-/* Glass card (plain CSS to avoid @apply issues) */
+html {
+  min-height: 100%;
+  background: var(--actfast-cream);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  color: var(--actfast-ink);
+  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(circle at 8% 8%, rgba(239, 43, 45, .10), transparent 26rem),
+    radial-gradient(circle at 92% 24%, rgba(246, 184, 75, .12), transparent 24rem),
+    linear-gradient(180deg, #fffdf9 0%, var(--actfast-cream) 100%);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: .32;
+  background-image: radial-gradient(rgba(23, 24, 28, .12) .75px, transparent .75px);
+  background-size: 20px 20px;
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
+}
+
+button, input, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { transition: transform .16s ease, box-shadow .16s ease, background-color .16s ease, border-color .16s ease, opacity .16s ease; }
+button:not(:disabled):active { transform: translateY(1px) scale(.99); }
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(var(--ring), .28);
+  outline-offset: 3px;
+}
+
+input, select {
+  color: var(--actfast-ink);
+  background: rgba(255, 255, 255, .92);
+  border-color: #d8d3cd !important;
+  box-shadow: inset 0 1px 1px rgba(23, 24, 28, .03);
+}
+
+input::placeholder { color: #98a2b3; }
+
+.site-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-bottom: 1px solid rgba(216, 211, 205, .78);
+  background: rgba(255, 253, 249, .88);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.site-header-inner {
+  width: min(1180px, calc(100% - 2rem));
+  min-height: 76px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.site-main {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: clamp(1.25rem, 3vw, 2.5rem) 0 6rem;
+}
+
 .card {
+  border-radius: 1.4rem;
+  border: 1px solid rgba(216, 211, 205, .86);
+  background: rgba(255, 255, 255, .90);
+  box-shadow: 0 1px 1px rgba(23, 24, 28, .03), 0 16px 44px rgba(23, 24, 28, .06);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.eyebrow {
+  color: var(--actfast-red-dark);
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.page-title {
+  margin: 0;
+  color: var(--actfast-ink);
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-weight: 900;
+  letter-spacing: -.045em;
+  line-height: .98;
+}
+
+.page-copy {
+  color: var(--actfast-muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  min-height: 2rem;
+  padding: .35rem .75rem;
+  border: 1px solid rgba(216, 211, 205, .9);
+  border-radius: 999px;
+  color: #475467;
+  background: rgba(255,255,255,.78);
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.status-dot {
+  width: .52rem;
+  height: .52rem;
+  border-radius: 999px;
+  background: #12b76a;
+  box-shadow: 0 0 0 4px rgba(18, 183, 106, .12);
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.btn-success {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: .55rem;
   border-radius: 1rem;
-  border: 1px solid rgba(226,232,240,.6);
-  background: rgba(255,255,255,.85);
-  box-shadow: 0 1px 2px rgba(16,24,40,.06);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+  padding: .72rem 1.05rem;
+  font-weight: 800;
+}
+
+.btn-primary {
+  border: 1px solid var(--actfast-red-dark);
+  color: white;
+  background: linear-gradient(135deg, #f04446, var(--actfast-red-dark));
+  box-shadow: 0 10px 22px rgba(201, 21, 33, .2);
+}
+.btn-primary:not(:disabled):hover { box-shadow: 0 13px 28px rgba(201, 21, 33, .28); transform: translateY(-1px); }
+
+.btn-secondary {
+  border: 1px solid #d8d3cd;
+  color: #344054;
+  background: rgba(255, 255, 255, .9);
+}
+.btn-secondary:not(:disabled):hover { border-color: #b9b2aa; background: white; }
+
+.btn-danger {
+  border: 1px solid #fecaca;
+  color: #b42318;
+  background: #fff5f4;
+}
+.btn-danger:not(:disabled):hover { background: #fee4e2; }
+
+.btn-success {
+  border: 1px solid #087443;
+  color: white;
+  background: linear-gradient(135deg, #12b76a, #087443);
+  box-shadow: 0 10px 22px rgba(8, 116, 67, .17);
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled,
+.btn-success:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+  box-shadow: none;
+}
+
+.metric-label {
+  color: #7c746d;
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.empty-state {
+  border: 1px dashed #d8d3cd;
+  border-radius: 1rem;
+  padding: 1.1rem;
+  color: #7c746d;
+  background: #fbfaf8;
+  font-size: .875rem;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .site-header-inner, .site-main { width: min(100% - 1.25rem, 1180px); }
+  .site-header-inner { min-height: 66px; }
+  .card { border-radius: 1.15rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

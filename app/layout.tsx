@@ -1,80 +1,40 @@
-// import type { Metadata } from "next";
-// import { Geist, Geist_Mono } from "next/font/google";
-// import "./globals.css";
-// import { Toaster } from "react-hot-toast";
-// import Brand from "@/app/components/Brand";
-
-// const geistSans = Geist({
-// 	variable: "--font-geist-sans",
-// 	subsets: ["latin"]
-// });
-
-// const geistMono = Geist_Mono({
-// 	variable: "--font-geist-mono",
-// 	subsets: ["latin"]
-// });
-
-// export const metadata: Metadata = {
-// 	title: "Bingo Party",
-// 	description: "Realtime phone-based bingo for your party"
-// };
-
-// export default function RootLayout({ children }: { children: React.ReactNode }) {
-// 	return (
-// 		<html lang='en'>
-// 			<body className='min-h-screen antialiased bg-gradient-to-br from-slate-50 via-white to-slate-100 text-slate-800'>
-// 				<header className='sticky top-0 z-40 backdrop-blur bg-white/70 border-b'>
-// 					<div className='max-w-5xl mx-auto px-4 py-3 flex items-center justify-between'>
-// 						<Brand />
-// 						<nav className='text-sm text-slate-600'>
-// 							<a className='hover:text-slate-900' href='/'>
-// 								Home
-// 							</a>
-// 						</nav>
-// 					</div>
-// 				</header>
-
-// 				<main className='max-w-5xl mx-auto px-4 pb-24 pt-6'>{children}</main>
-
-// 				<Toaster position='top-center' toastOptions={{ duration: 2000 }} />
-// 			</body>
-// 		</html>
-// 	);
-// }
-
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import Link from "next/link";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
 import Brand from "@/app/components/Brand";
 import SoundToggle from "@/app/components/SoundToggle";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
-
 export const metadata: Metadata = {
-	title: "Bingo Party",
-	description: "Realtime phone-based bingo for your party"
+	title: { default: "ActFAST Bingo", template: "%s | ActFAST Bingo" },
+	description: "A fast, friendly real-time bingo game by ActFAST Restoration."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
 	return (
 		<html lang='en'>
-			<body className='min-h-screen antialiased bg-gradient-to-br from-slate-50 via-white to-slate-100 text-slate-800'>
-				<header className='sticky top-0 z-40 backdrop-blur bg-white/70 border-b'>
-					<div className='max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3'>
-						<Brand />
-						<nav className='flex items-center gap-3 text-sm text-slate-600'>
-							<a className='hover:text-slate-900' href='/'>
-								Home
-							</a>
-							<SoundToggle />
-						</nav>
-					</div>
-				</header>
-
-				<main className='max-w-5xl mx-auto px-4 pb-24 pt-6'>{children}</main>
-				<Toaster position='top-center' toastOptions={{ duration: 2000 }} />
+			<body>
+				<div className='site-shell'>
+					<header className='site-header'>
+						<div className='site-header-inner'>
+							<Brand />
+							<nav className='flex items-center gap-2' aria-label='Main navigation'>
+								<Link className='hidden sm:inline-flex rounded-xl px-3 py-2 text-sm font-bold text-slate-600 hover:bg-white hover:text-slate-950' href='/'>
+									Home
+								</Link>
+								<SoundToggle />
+							</nav>
+						</div>
+					</header>
+					<main className='site-main'>{children}</main>
+				</div>
+				<Toaster
+					position='top-center'
+					toastOptions={{
+						duration: 2400,
+						style: { borderRadius: "14px", border: "1px solid #e8e4df", color: "#17181c" }
+					}}
+				/>
 			</body>
 		</html>
 	);
